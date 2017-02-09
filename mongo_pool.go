@@ -53,7 +53,7 @@ func (pool *MongoSessionPool) GetSession() (*mgo.Session, error) {
 	defer pool.mutex.Unlock()
 
 	if pool.current_session_count > pool.max_session {
-		return nil, nil
+		return nil, Err_no_session
 	}
 	if pool.conn == nil {
 		return nil, Err_mongo_conn_err
