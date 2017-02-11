@@ -15,7 +15,7 @@ import (
 // 同时负责检查连接的状态,断线之后可以自动重新连接
 //
 var (
-	Err_no_session     = errors.New("new session left")
+	Err_no_session     = errors.New("no session left")
 	Err_mongo_conn_err = fmt.Errorf("lost mongo db server")
 )
 
@@ -27,12 +27,15 @@ type MongoSessionPool struct {
 	current_session_count int
 }
 
-func NewMongoSessionPool(hosts string) *MongoSessionPool {
+func NewMongoSessionPool(hosts string, max_session_count int) *MongoSessionPool {
+	if max_session_count <= 0 {
+		max_session_count = 3
+	}
 
 	pool := &MongoSessionPool{
 		mutex:                 sync.Mutex{},
 		hosts:                 hosts,
-		max_session:           10,
+		max_session:           max_session_count,
 		current_session_count: 0,
 	}
 
@@ -43,8 +46,8 @@ func (pool *MongoSessionPool) ReturnSession(session *mgo.Session) {
 	session.Close()
 
 	pool.mutex.Lock()
-	pool.mutex.Unlock()
 
+	defer pool.mutex.Unlock()
 	pool.current_session_count--
 }
 

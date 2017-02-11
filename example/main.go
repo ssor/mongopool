@@ -3,6 +3,8 @@ package main
 import (
 	"log"
 
+	"gopkg.in/mgo.v2/bson"
+
 	"github.com/ssor/mongopool"
 
 	"time"
@@ -18,13 +20,20 @@ var (
 
 func main() {
 	InitMongo()
-	ticker := time.NewTicker(5 * time.Second)
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	// ticker := time.NewTicker(1 * time.Second)
 	go func() {
 		for {
 			<-ticker.C
-			err := SaveUserLoginInfoToDB(Mongo_pool)
-			if err != nil {
-				fmt.Println("*** ", err)
+			conn_to_db := func() {
+				err := SaveUserLoginInfoToDB(Mongo_pool)
+				if err != nil {
+					fmt.Println("*** ", err)
+				}
+			}
+			for index := 0; index < 300; index++ {
+				go conn_to_db()
 			}
 		}
 	}()
@@ -34,9 +43,13 @@ func main() {
 }
 
 func InitMongo() {
-	Mongo_pool = mongo_pool.NewMongoSessionPool("127.0.0.1")
+	Mongo_pool = mongo_pool.NewMongoSessionPool("127.0.0.1", 3)
 	Mongo_pool.Run()
 }
+
+var (
+	count_connect_to_db = 0
+)
 
 func SaveUserLoginInfoToDB(mongo_pool *mongo_pool.MongoSessionPool) error {
 	session, err := mongo_pool.GetSession()
@@ -45,6 +58,11 @@ func SaveUserLoginInfoToDB(mongo_pool *mongo_pool.MongoSessionPool) error {
 	}
 	defer mongo_pool.ReturnSession(session)
 
-	log.Println("mongo did some thing!")
+	_, err = session.DB("testdb").C("testcol").Upsert(bson.M{"_id": "testid"}, bson.M{"_id": "testid", "value": "123"})
+	if err != nil {
+		return err
+	}
+	count_connect_to_db += 1
+	log.Println("mongo did some thing! ", count_connect_to_db)
 	return nil
 }
