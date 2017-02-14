@@ -1,15 +1,13 @@
 package main
 
 import (
+	"fmt"
 	"log"
+	"time"
 
 	"gopkg.in/mgo.v2/bson"
 
 	"github.com/ssor/mongopool"
-
-	"time"
-
-	"fmt"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,9 +18,15 @@ var (
 
 func main() {
 	InitMongo()
+	loop_mongo()
+	router := gin.Default()
 
-	ticker := time.NewTicker(100 * time.Millisecond)
-	// ticker := time.NewTicker(1 * time.Second)
+	router.Run(":8090")
+}
+
+func loop_mongo() {
+
+	ticker := time.NewTicker(10 * time.Millisecond)
 	go func() {
 		for {
 			<-ticker.C
@@ -37,13 +41,10 @@ func main() {
 			}
 		}
 	}()
-	router := gin.Default()
-
-	router.Run(":8090")
 }
 
 func InitMongo() {
-	Mongo_pool = mongo_pool.NewMongoSessionPool("127.0.0.1", 3)
+	Mongo_pool = mongo_pool.NewMongoSessionPool("127.0.0.1", 1)
 	Mongo_pool.Run()
 }
 
