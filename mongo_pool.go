@@ -7,7 +7,8 @@ import (
 
 	"fmt"
 
-	"gopkg.in/mgo.v2"
+	// "gopkg.in/mgo.v2"
+	"github.com/ssor/mgo"
 )
 
 //
@@ -115,6 +116,7 @@ func (pool *MongoSessionPool) initMongo() error {
 	pool.conn.SetPoolLimit(pool.max_session)
 	for index := 0; index < pool.max_session; index++ {
 		pool.sessions = append(pool.sessions, mongoSession.Copy())
+		// pool.sessions = append(pool.sessions, mongoSession)
 	}
 
 	fmt.Println("[OK] ", len(pool.sessions), "sessions cached")

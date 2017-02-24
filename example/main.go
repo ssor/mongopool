@@ -45,6 +45,7 @@ func loop_mongo() {
 
 func InitMongo() {
 	Mongo_pool = mongo_pool.NewMongoSessionPool("127.0.0.1", 1)
+	// Mongo_pool = mongo_pool.NewMongoSessionPool("192.168.10.120", 1)
 	Mongo_pool.Run()
 }
 
