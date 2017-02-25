@@ -7,8 +7,8 @@ import (
 
 	"fmt"
 
-	// "gopkg.in/mgo.v2"
-	"github.com/ssor/mgo"
+	"gopkg.in/mgo.v2"
+	// "github.com/ssor/mgo"
 )
 
 //
@@ -26,6 +26,7 @@ type MongoSessionPool struct {
 	hosts       string //mongo hosts
 	max_session int    // max session used in one node ,default 10
 	sessions    []*mgo.Session
+	conneting   bool
 	// current_session_count int
 }
 
@@ -42,36 +43,58 @@ func NewMongoSessionPool(hosts string, max_session_count int) *MongoSessionPool 
 		sessions:    []*mgo.Session{},
 		// current_session_count: 0,
 	}
-
+	// mgo.SetDebug(true)
+	// mgo.SetLogger(logger(func(depth int, s string) error {
+	// 	fmt.Println(depth, " : ", s)
+	// 	return nil
+	// }))
 	return pool
 }
 
-func (pool *MongoSessionPool) ReturnSession(session *mgo.Session) {
-	// session.Close()
+type logger func(depth int, s string) error
+
+func (l logger) Output(calldepth int, s string) error {
+	if l != nil {
+		return l(calldepth, s)
+	}
+	return nil
+}
+
+func (pool *MongoSessionPool) ReturnSession(session *mgo.Session, err error) {
 
 	pool.mutex.Lock()
 
 	defer pool.mutex.Unlock()
 
-	pool.sessions = append(pool.sessions, session)
+	if err == nil {
+		if session != nil {
+			pool.sessions = append(pool.sessions, session)
+		}
+	} else {
+		fmt.Println("[TIP] session err, need to reconn: ", err)
+		for _, session := range pool.sessions {
+			session.Close()
+		}
+		pool.sessions = pool.sessions[0:0]
+
+		if pool.conneting == false {
+			pool.conneting = true
+			go pool.reconnect()
+		}
+	}
+
 }
 
 func (pool *MongoSessionPool) GetSession() (*mgo.Session, error) {
-	// return pool.conn, nil
 	pool.mutex.Lock()
 	defer pool.mutex.Unlock()
 
-	// if pool.current_session_count > pool.max_session {
-	// 	return nil, Err_no_session
-	// }
 	if pool.conn == nil {
 		return nil, Err_mongo_conn_err
 	}
-	if len(pool.sessions) <= 0 {
+	if pool.sessions == nil || len(pool.sessions) <= 0 {
 		return nil, Err_no_session
 	}
-	// session := pool.conn.Copy()
-	// pool.current_session_count++
 	session := pool.sessions[0]
 	pool.sessions = pool.sessions[1:]
 	return session, nil
@@ -83,26 +106,17 @@ func (pool *MongoSessionPool) Run() {
 	if err != nil {
 		panic("mongo connect failed: " + err.Error())
 	}
-	ticker := time.NewTicker(30 * time.Second) //出发消息发送轮询事件
-	go func() {
-		for {
-			<-ticker.C
-			if pool.conn == nil {
-				err = pool.initMongo()
-				if err == nil {
-					fmt.Println("[OK] reconnect to mongo success")
-				} else {
-					fmt.Println("[ERR] reconnect to mongo failed")
-				}
-			} else {
-				if err := pool.conn.Ping(); err != nil {
-					pool.conn = nil
-					pool.sessions = []*mgo.Session{}
-				}
-			}
-		}
-	}()
+}
 
+func (pool *MongoSessionPool) reconnect() {
+	fmt.Println("[TIP] Trying to reconnect to mongo...")
+	time.Sleep(5 * time.Second)
+	pool.conn.Refresh()
+	pool.generateSessionPool()
+
+	pool.mutex.Lock()
+	defer pool.mutex.Unlock()
+	pool.conneting = false
 }
 
 func (pool *MongoSessionPool) initMongo() error {
@@ -112,14 +126,23 @@ func (pool *MongoSessionPool) initMongo() error {
 		fmt.Println("connect mongo error: " + err.Error())
 		return err
 	}
+
+	pool.mutex.Lock()
+	defer pool.mutex.Unlock()
 	pool.conn = mongoSession
 	pool.conn.SetPoolLimit(pool.max_session)
-	for index := 0; index < pool.max_session; index++ {
-		pool.sessions = append(pool.sessions, mongoSession.Copy())
-		// pool.sessions = append(pool.sessions, mongoSession)
-	}
+	pool.generateSessionPool()
 
 	fmt.Println("[OK] ", len(pool.sessions), "sessions cached")
 
 	return nil
+}
+
+func (pool *MongoSessionPool) generateSessionPool() {
+	if pool.sessions == nil {
+		pool.sessions = []*mgo.Session{}
+	}
+	for index := 0; index < pool.max_session; index++ {
+		pool.sessions = append(pool.sessions, pool.conn.Copy())
+	}
 }

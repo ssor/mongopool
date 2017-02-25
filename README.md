@@ -15,9 +15,12 @@ library to connect to mongodb
 
 2. get a session and after using, return the session
 ```
-	session, err := mongo_pool.GetSession()
+	var err error
+	session, err := pool.GetSession()
+	defer func() {
+		pool.ReturnSession(session, err)
+	}()
 	if err != nil {
 		return err
 	}
-	defer mongo_pool.ReturnSession(session)
 ```
