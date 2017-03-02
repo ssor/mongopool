@@ -55,8 +55,8 @@ func SaveUserLoginInfoToDB(pool *mongo_pool.MongoSessionPool) error {
 	if err != nil {
 		return err
 	}
-
-	_, err = session.DB("testdb").C("testcol").Upsert(bson.M{"_id": "testid"}, bson.M{"_id": "testid", "value": "123"})
+	now := time.Now().Format(time.RFC3339)
+	_, err = session.DB("testdb").C("testcol").Upsert(bson.M{"_id": "testid"}, bson.M{"_id": "testid", "value": now})
 	if err != nil {
 		return err
 	}
