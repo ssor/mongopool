@@ -8,7 +8,6 @@ import (
 	"fmt"
 
 	"gopkg.in/mgo.v2"
-	// "github.com/ssor/mgo"
 )
 
 //
@@ -16,50 +15,36 @@ import (
 // 同时负责检查连接的状态,断线之后可以自动重新连接
 //
 var (
-	Err_no_session     = errors.New("no session left")
-	Err_mongo_conn_err = fmt.Errorf("lost mongo db server")
+	ErrNoSession = errors.New("no session left")
+	ErrNoServer  = fmt.Errorf("lost mongo db server")
 )
 
 type MongoSessionPool struct {
-	mutex       sync.Mutex
-	conn        *mgo.Session
-	hosts       string //mongo hosts
-	max_session int    // max session used in one node ,default 10
-	sessions    []*mgo.Session
-	conneting   bool
-	// current_session_count int
+	mutex      sync.Mutex
+	conn       *mgo.Session
+	hosts      string //mongo hosts
+	maxSession int    // max session used in one node ,default 10
+	sessions   []*mgo.Session
+	conneting  bool
 }
 
-func NewMongoSessionPool(hosts string, max_session_count int) *MongoSessionPool {
-	if max_session_count <= 0 {
-		max_session_count = 3
+// NewMongoSessionPool init a pool
+func NewMongoSessionPool(hosts string, maxSessionCount int) *MongoSessionPool {
+	if maxSessionCount <= 0 {
+		maxSessionCount = 3
 	}
-	fmt.Println("[OK] mongo max_session set to ", max_session_count)
+	fmt.Println("[OK] mongo max_session set to ", maxSessionCount)
 
 	pool := &MongoSessionPool{
-		mutex:       sync.Mutex{},
-		hosts:       hosts,
-		max_session: max_session_count,
-		sessions:    []*mgo.Session{},
-		// current_session_count: 0,
+		mutex:      sync.Mutex{},
+		hosts:      hosts,
+		maxSession: maxSessionCount,
+		sessions:   []*mgo.Session{},
 	}
-	// mgo.SetDebug(true)
-	// mgo.SetLogger(logger(func(depth int, s string) error {
-	// 	fmt.Println(depth, " : ", s)
-	// 	return nil
-	// }))
 	return pool
 }
 
-type logger func(depth int, s string) error
-
-func (l logger) Output(calldepth int, s string) error {
-	if l != nil {
-		return l(calldepth, s)
-	}
-	return nil
-}
-
+// ReturnSession will regain the session used away
 func (pool *MongoSessionPool) ReturnSession(session *mgo.Session, err error) {
 
 	pool.mutex.Lock()
@@ -70,36 +55,51 @@ func (pool *MongoSessionPool) ReturnSession(session *mgo.Session, err error) {
 		if session != nil {
 			pool.sessions = append(pool.sessions, session)
 		}
-	} else {
-		fmt.Println("[TIP] session err, need to reconn: ", err)
-		for _, session := range pool.sessions {
-			session.Close()
-		}
-		pool.sessions = pool.sessions[0:0]
+		return
+	}
 
-		if pool.conneting == false {
-			pool.conneting = true
-			go pool.reconnect()
-		}
+	if err == ErrNoServer { // in fact, this should not happend
+		return
+	}
+
+	if err == ErrNoSession { // session must be nil
+		return
+	}
+
+	// now if err may be mongo disconnect err or data err
+	// if it's mongo disconnect err, we do below
+	// if it's not, we do below although it's not the connection's err, we assume that the app will dispose this error later
+
+	fmt.Println("[TIP] session err, need to reconn: ", err)
+	for _, session := range pool.sessions {
+		session.Close()
+	}
+	pool.sessions = pool.sessions[0:0]
+
+	if pool.conneting == false {
+		pool.conneting = true
+		go pool.reconnect()
 	}
 
 }
 
+// GetSession return a mongo session to be used
 func (pool *MongoSessionPool) GetSession() (*mgo.Session, error) {
 	pool.mutex.Lock()
 	defer pool.mutex.Unlock()
 
 	if pool.conn == nil {
-		return nil, Err_mongo_conn_err
+		return nil, ErrNoServer
 	}
 	if pool.sessions == nil || len(pool.sessions) <= 0 {
-		return nil, Err_no_session
+		return nil, ErrNoSession
 	}
 	session := pool.sessions[0]
 	pool.sessions = pool.sessions[1:]
 	return session, nil
 }
 
+// Run will start a mongo connection
 func (pool *MongoSessionPool) Run() {
 
 	err := pool.initMongo()
@@ -130,7 +130,7 @@ func (pool *MongoSessionPool) initMongo() error {
 	pool.mutex.Lock()
 	defer pool.mutex.Unlock()
 	pool.conn = mongoSession
-	pool.conn.SetPoolLimit(pool.max_session)
+	pool.conn.SetPoolLimit(pool.maxSession)
 	pool.generateSessionPool()
 
 	fmt.Println("[OK] ", len(pool.sessions), "sessions cached")
@@ -142,7 +142,7 @@ func (pool *MongoSessionPool) generateSessionPool() {
 	if pool.sessions == nil {
 		pool.sessions = []*mgo.Session{}
 	}
-	for index := 0; index < pool.max_session; index++ {
+	for index := 0; index < pool.maxSession; index++ {
 		pool.sessions = append(pool.sessions, pool.conn.Copy())
 	}
 }
