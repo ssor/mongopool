@@ -2,53 +2,62 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"os/signal"
 	"time"
 
 	"gopkg.in/mgo.v2/bson"
 
 	"github.com/ssor/mongopool"
-
-	"github.com/gin-gonic/gin"
 )
 
+/*
+	This example show a demo to get mongo connection in time,
+	if time too long, an error of timeout will be return
+*/
+
 var (
-	Mongo_pool *mongo_pool.MongoSessionPool
+	mongoPool *mongo_pool.MongoSessionPool
 )
 
 func main() {
-	InitMongo()
-	loop_mongo()
-	router := gin.Default()
+	initMongo()
+	loopMongo()
 
-	router.Run(":8090")
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+
+	// Block until a signal is received.
+	<-c
+	fmt.Println("[OK] Quit")
+
 }
 
-func loop_mongo() {
-
+func loopMongo() {
 	go func() {
 		for {
 			time.Sleep(1000 * time.Millisecond)
-			conn_to_db := func() {
-				err := SaveUserLoginInfoToDB(Mongo_pool)
+			connToDB := func() {
+				err := saveUserLoginInfoToDB(mongoPool)
 				if err != nil {
 					fmt.Println("*** save user err: ", err)
 				} else {
 					fmt.Println("[OK] save user to do success")
 				}
 			}
-			conn_to_db()
+			go connToDB()
 		}
 	}()
 }
 
-func InitMongo() {
-	Mongo_pool = mongo_pool.NewMongoSessionPool("127.0.0.1", 2)
-	Mongo_pool.Run()
+func initMongo() {
+	mongoPool = mongo_pool.NewMongoSessionPool("127.0.0.1", 2)
+	mongoPool.Run()
 }
 
-func SaveUserLoginInfoToDB(pool *mongo_pool.MongoSessionPool) error {
+func saveUserLoginInfoToDB(pool *mongo_pool.MongoSessionPool) error {
 	var err error
-	session, err := pool.GetSession()
+	session, err := pool.GetSessionTimeout(1 * time.Second)
 	defer func() {
 		pool.ReturnSession(session, err)
 	}()
@@ -60,5 +69,6 @@ func SaveUserLoginInfoToDB(pool *mongo_pool.MongoSessionPool) error {
 	if err != nil {
 		return err
 	}
+	time.Sleep(5 * time.Second)
 	return nil
 }
